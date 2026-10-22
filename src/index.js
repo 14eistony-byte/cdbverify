@@ -10,7 +10,8 @@ const {
   REST,
   Routes,
   PermissionFlagsBits,
-  MessageFlags
+  MessageFlags,
+  EmbedBuilder
 } = require("discord.js");
 
 const store = require("./store");
@@ -52,6 +53,9 @@ const BASE_URL = (
 ).replace(/\/+$/, "");
 
 const REDIRECT_URI = process.env.DISCORD_REDIRECT_URI;
+
+// Discord-Kanal, in dem neue Anträge protokolliert werden.
+const LOG_CHANNEL_ID = "1555496644907106374";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -150,7 +154,10 @@ function authRequired(req, res, next) {
 function saveSession(req, res, callback) {
   req.session.save(err => {
     if (err) {
-      console.error("Session konnte nicht gespeichert werden:", err.message);
+      console.error(
+        "Session konnte nicht gespeichert werden:",
+        err.message
+      );
 
       if (!res.headersSent) {
         return res.status(500).send(
@@ -455,7 +462,6 @@ app.get("/auth/discord", (req, res) => {
   url.searchParams.set("scope", "identify");
   url.searchParams.set("state", state);
 
-  // Session speichern, bevor der Browser zu Discord weitergeleitet wird.
   saveSession(req, res, () => {
     res.redirect(url.toString());
   });
@@ -502,7 +508,6 @@ app.get("/auth/discord/callback", async (req, res) => {
     );
   }
 
-  // Den State nur nach erfolgreicher Prüfung löschen.
   delete req.session.oauthState;
 
   try {
@@ -557,9 +562,10 @@ app.get("/auth/discord/callback", async (req, res) => {
 
     const discordUser = await userResponse.json();
 
-    // Prüfen, ob der Login zu einer gestarteten /verify-Anfrage gehört.
     if (req.session.requestToken) {
-      const linkedRequest = store.getRequest(req.session.requestToken);
+      const linkedRequest = store.getRequest(
+        req.session.requestToken
+      );
 
       if (
         !linkedRequest ||
@@ -588,7 +594,6 @@ app.get("/auth/discord/callback", async (req, res) => {
       avatar: discordUser.avatar
     };
 
-    // Erst zur Profilseite weiterleiten, nachdem die Session gespeichert ist.
     saveSession(req, res, () => {
       res.redirect("/profile");
     });
@@ -724,10 +729,10 @@ app.get("/profile", authRequired, (req, res) => {
 });
 
 // ==================================================
-// MINECRAFT-PROFIL EINREICHEN
+// MINECRAFT-PROFIL EINREICHEN + DISCORD-LOG
 // ==================================================
 
-app.post("/claim", authRequired, (req, res) => {
+app.post("/claim", authRequired, async (req, res) => {
   const user = req.session.discordUser;
 
   const linkedRequest = req.session.requestToken
@@ -774,21 +779,127 @@ app.post("/claim", authRequired, (req, res) => {
   }
 
   const token = crypto.randomBytes(18).toString("hex");
+  const createdAt = new Date().toISOString();
 
-  store.createRequest({
-    token,
-    discordId: user.id,
-    discordName: user.username,
-    minecraftName,
-    edition,
-    status: "awaiting_review",
-    createdAt: new Date().toISOString()
-  });
+  // --------------------------------------------------
+  // 1. Antrag speichern
+  // --------------------------------------------------
 
-  store.updateRequest(linkedRequest.token, {
-    status: "submitted",
-    submittedAt: new Date().toISOString()
-  });
+  try {
+    store.createRequest({
+      token,
+      discordId: user.id,
+      discordName: user.username,
+      minecraftName,
+      edition,
+      status: "awaiting_review",
+      createdAt
+    });
+
+    store.updateRequest(linkedRequest.token, {
+      status: "submitted",
+      submittedAt: createdAt
+    });
+  } catch (error) {
+    console.error(
+      "Antrag konnte nicht gespeichert werden:",
+      error.message
+    );
+
+    return res.status(500).send(
+      page(
+        "Speichern fehlgeschlagen",
+        alertBox(
+          "Dein Antrag konnte nicht gespeichert werden. Bitte versuche es erneut.",
+          "bad"
+        ),
+        user
+      )
+    );
+  }
+
+  // --------------------------------------------------
+  // 2. Antrag im Discord-Log-Kanal veröffentlichen
+  // --------------------------------------------------
+
+  try {
+    const logChannel = await client.channels.fetch(
+      LOG_CHANNEL_ID
+    );
+
+    if (
+      !logChannel ||
+      !logChannel.isTextBased() ||
+      typeof logChannel.send !== "function"
+    ) {
+      throw new Error(
+        "Der konfigurierte Log-Kanal ist kein Textkanal."
+      );
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0xF6D365)
+      .setTitle("📋 Neuer Minecraft-Verifizierungsantrag")
+      .setDescription(
+        "Ein neuer Antrag wurde eingereicht und wartet auf eine manuelle Prüfung."
+      )
+      .addFields(
+        {
+          name: "Discord-Spieler",
+          value: String(user.username).slice(0, 1024),
+          inline: true
+        },
+        {
+          name: "Discord-ID",
+          value: user.id,
+          inline: true
+        },
+        {
+          name: "Minecraft-Spielername",
+          value: minecraftName,
+          inline: true
+        },
+        {
+          name: "Edition",
+          value: edition,
+          inline: true
+        },
+        {
+          name: "Status",
+          value: "⏳ WARTET AUF PRÜFUNG",
+          inline: true
+        },
+        {
+          name: "Antrags-ID",
+          value: token,
+          inline: false
+        }
+      )
+      .setFooter({
+        text: "BlockVerify · Manuelle Besitzprüfung erforderlich"
+      })
+      .setTimestamp(new Date(createdAt));
+
+    await logChannel.send({
+      embeds: [embed],
+      allowedMentions: {
+        parse: []
+      }
+    });
+
+    console.log(
+      `Antrag ${token} wurde an den Log-Kanal gesendet.`
+    );
+  } catch (error) {
+    console.error(
+      "Antrag gespeichert, aber Discord-Logging fehlgeschlagen:",
+      error.message
+    );
+  }
+
+  // --------------------------------------------------
+  // 3. Session aktualisieren und Bestätigung anzeigen
+  // --------------------------------------------------
 
   delete req.session.requestToken;
 
@@ -800,20 +911,24 @@ app.post("/claim", authRequired, (req, res) => {
           <h1>Einreichung gespeichert!</h1>
 
           ${alertBox(
-            "Dein Profil wartet auf Prüfung. Noch wurde keine Verified-Rolle vergeben.",
+            "Dein Minecraft-Profil wurde eingereicht und wartet auf Prüfung.",
             "ok"
           )}
 
           <p>
-            Minecraft: <b>${escapeHtml(minecraftName)}</b>
+            Minecraft:
+            <b>${escapeHtml(minecraftName)}</b>
             (${escapeHtml(edition)})
           </p>
 
           <p class="small">
-            Bitte gib niemals dein Microsoft- oder Minecraft-Passwort weiter.
+            Die Verified-Rolle wurde noch nicht vergeben.
+            Ein Teammitglied muss deinen Besitznachweis prüfen.
           </p>
 
-          <a class="button" href="/profile">Zurück zum Profil</a>
+          <a class="button" href="/profile">
+            Zurück zum Profil
+          </a>
         `,
         user
       )
@@ -833,7 +948,10 @@ app.get("/logout", (req, res) => {
       return res.status(500).send(
         page(
           "Abmelden fehlgeschlagen",
-          alertBox("Du konntest nicht abgemeldet werden. Bitte versuche es erneut.", "bad")
+          alertBox(
+            "Du konntest nicht abgemeldet werden. Bitte versuche es erneut.",
+            "bad"
+          )
         )
       );
     }
@@ -855,56 +973,66 @@ app.get("/logout", (req, res) => {
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === "verify") {
-    const token = crypto.randomBytes(18).toString("hex");
+  try {
+    // ------------------------------------------------
+    // /verify
+    // ------------------------------------------------
 
-    store.createRequest({
-      token,
-      discordId: interaction.user.id,
-      discordName: interaction.user.username,
-      minecraftName: null,
-      edition: null,
-      status: "started",
-      createdAt: new Date().toISOString()
-    });
+    if (interaction.commandName === "verify") {
+      const token = crypto.randomBytes(18).toString("hex");
 
-    const url = new URL("/start", BASE_URL);
-
-    url.searchParams.set("request", token);
-
-    await interaction.reply({
-      content:
-        `🌿 Starte deine Minecraft-Verknüpfung hier: ${url.toString()}\n` +
-        "**Hinweis:** Die Eingabe eines Namens allein verifiziert keinen Accountbesitz.",
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
-  if (interaction.commandName === "verifyapprove") {
-    if (
-      !interaction.memberPermissions?.has(
-        PermissionFlagsBits.ManageRoles
-      )
-    ) {
-      return interaction.reply({
-        content: "Du brauchst die Berechtigung „Rollen verwalten“.",
-        flags: MessageFlags.Ephemeral
+      store.createRequest({
+        token,
+        discordId: interaction.user.id,
+        discordName: interaction.user.username,
+        minecraftName: null,
+        edition: null,
+        status: "started",
+        createdAt: new Date().toISOString()
       });
-    }
 
-    const target = interaction.options.getUser("spieler", true);
+      const url = new URL("/start", BASE_URL);
 
-    const request = store.findLatestPendingByDiscord(target.id);
+      url.searchParams.set("request", token);
 
-    if (!request) {
-      return interaction.reply({
+      await interaction.reply({
         content:
-          "Für diesen Spieler wurde kein Antrag gefunden, der auf Prüfung wartet.",
+          `🌿 Starte deine Minecraft-Verknüpfung hier: ${url.toString()}\n` +
+          "**Hinweis:** Die Eingabe eines Namens allein verifiziert keinen Accountbesitz.",
         flags: MessageFlags.Ephemeral
       });
+
+      return;
     }
 
-    try {
+    // ------------------------------------------------
+    // /verifyapprove
+    // ------------------------------------------------
+
+    if (interaction.commandName === "verifyapprove") {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.ManageRoles
+        )
+      ) {
+        return interaction.reply({
+          content: "Du brauchst die Berechtigung „Rollen verwalten“.",
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      const target = interaction.options.getUser("spieler", true);
+
+      const request = store.findLatestPendingByDiscord(target.id);
+
+      if (!request) {
+        return interaction.reply({
+          content:
+            "Für diesen Spieler wurde kein Antrag gefunden, der auf Prüfung wartet.",
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
       const guild = await client.guilds.fetch(
         process.env.DISCORD_GUILD_ID
       );
@@ -936,15 +1064,28 @@ client.on("interactionCreate", async interaction => {
           "Bitte nutze diesen Befehl nur, nachdem du den Minecraft-Besitz tatsächlich geprüft hast.",
         flags: MessageFlags.Ephemeral
       });
-    } catch (err) {
-      console.error("Role grant failed:", err.message);
 
-      await interaction.reply({
-        content:
-          "Die Rolle konnte nicht vergeben werden. Prüfe Bot-Rechte, " +
-          "Rollenposition und VERIFIED_ROLE_ID.",
+      return;
+    }
+  } catch (err) {
+    console.error(
+      `Fehler bei /${interaction.commandName}:`,
+      err.message
+    );
+
+    const errorMessage =
+      "Es ist ein Fehler aufgetreten. Prüfe die Server-Logs und Bot-Berechtigungen.";
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({
+        content: errorMessage,
         flags: MessageFlags.Ephemeral
-      });
+      }).catch(() => {});
+    } else {
+      await interaction.reply({
+        content: errorMessage,
+        flags: MessageFlags.Ephemeral
+      }).catch(() => {});
     }
   }
 });
@@ -991,7 +1132,6 @@ app.get("/start", (req, res) => {
     </p>
   `;
 
-  // Wichtig: requestToken speichern, bevor die Seite ausgeliefert wird.
   saveSession(req, res, () => {
     res.send(page("Verifizierung starten", body));
   });
