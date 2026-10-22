@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CDB Clan | Minecraft Verify</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #101510;
+            color: white;
+        }
+
+        header {
+            text-align: center;
+            padding: 25px;
+            background: #263d25;
+            border-bottom: 5px solid #172617;
+        }
+
+        .logo {
+            font-size: 30px;
+            font-weight: 900;
+            color: #8cff75;
+            text-shadow: 3px 3px #142414;
+        }
+
+        .grass {
+            height: 18px;
+            background: repeating-linear-gradient(
+                90deg,
+                #4fae36 0 24px,
+                #39872a 24px 48px
+            );
+            border-bottom: 5px solid #68462b;
+        }
+
+        main {
+            max-width: 520px;
+            margin: 45px auto;
+            padding: 20px;
+        }
+
+        .card {
+            padding: 28px;
+            background: #1d271d;
+            border: 2px solid #405b3c;
+            border-radius: 8px;
+            box-shadow: 0 8px 0 #090d09;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .description {
+            text-align: center;
+            color: #c0cbbd;
+            line-height: 1.6;
+        }
+
+        .editions {
+            display: flex;
+            gap: 12px;
+            margin: 24px 0;
+        }
+
+        .edition {
+            flex: 1;
+            padding: 14px;
+            color: white;
+            background: #293729;
+            border: 2px solid #52694d;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .edition.selected {
+            border-color: #8cff75;
+            background: #34532f;
+        }
+
+        label {
+            display: block;
+            margin: 14px 0 8px;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px;
+            color: white;
+            background: #101710;
+            border: 2px solid #52694d;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        .submit {
+            width: 100%;
+            margin-top: 20px;
+            padding: 15px;
+            background: #4caa37;
+            color: white;
+            border: 0;
+            border-bottom: 5px solid #2c7022;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .submit:hover {
+            background: #5bc743;
+        }
+
+        .message {
+            margin-top: 18px;
+            color: #a4ff93;
+            text-align: center;
+            overflow-wrap: anywhere;
+        }
+
+        .notice {
+            margin-top: 20px;
+            padding: 12px;
+            background: #172217;
+            border-left: 4px solid #79c968;
+            color: #d2e3ce;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        footer {
+            padding: 20px;
+            text-align: center;
+            color: #8a9b85;
+            font-size: 13px;
+        }
+
+        @media (max-width: 450px) {
+            main {
+                margin: 25px auto;
+            }
+
+            .card {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="logo">⛏ CDB CLAN</div>
+        <div> Minecraft Account Center</div>
+    </header>
+
+    <div class="grass"></div>
+
+    <main>
+        <section class="card">
+            <h1>🌿 Account Verify</h1>
+
+            <p class="description">
+                Willkommen bei CDB Clan!<br>
+                Bereite die Verknüpfung deines
+                Minecraft-Accounts vor.
+            </p>
+
+            <form method="POST">
+                <label>Wähle deine Edition</label>
+
+                <div class="editions">
+                    <button
+                        type="button"
+                        class="edition selected"
+                        onclick="selectEdition('Java', this)">
+                        ☕ Java
+                    </button>
+
+                    <button
+                        type="button"
+                        class="edition"
+                        onclick="selectEdition('Bedrock', this)">
+                        🪨 Bedrock
+                    </button>
+                </div>
+
+                <input
+                    type="hidden"
+                    name="edition"
+                    id="edition"
+                    value="Java">
+
+                <label for="username">Minecraft-Spielername</label>
+
+                <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    placeholder="Dein Minecraft-Name"
+                    minlength="1"
+                    maxlength="16"
+                    pattern="[A-Za-z0-9_]+"
+                    autocomplete="off"
+                    required>
+
+                <button class="submit" type="submit">
+                    Account vorbereiten →
+                </button>
+            </form>
+
+            {% if message %}
+                <div class="message">{{ message }}</div>
+            {% endif %}
+
+            <div class="notice">
+                🔒 Dies ist die erste Version. Die Eingabe
+                bestätigt noch nicht, dass dir der
+                Minecraft-Account gehört.
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        CDB Clan · Minecraft Verification System
+    </footer>
+
+    <script>
+        function selectEdition(edition, button) {
+            document.getElementById("edition").value = edition;
+
+            document.querySelectorAll(".edition").forEach(item => {
+                item.classList.remove("selected");
+            });
+
+            button.classList.add("selected");
+        }
+    </script>
+</body>
+</html>
