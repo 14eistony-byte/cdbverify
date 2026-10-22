@@ -89,9 +89,23 @@ app.get("/auth/discord", (req, res) => {
 
 app.get("/auth/discord/callback", async (req, res) => {
   const { code, state } = req.query;
-  if (!code || !state || !req.session.oauthState || state !== req.session.oauthState) {
-    return res.status(400).send(page("Login fehlgeschlagen", alertBox("Ungültige Anmeldung. Bitte versuche es erneut.", "bad")));
-  }
+ if (!code || !state || !req.session.oauthState || state !== req.session.oauthState) {
+  console.log("OAuth-Fehler:", {
+    hasCode: Boolean(code),
+    hasState: Boolean(state),
+    hasSessionState: Boolean(req.session.oauthState),
+    stateMatches: Boolean(
+      state && req.session.oauthState && state === req.session.oauthState
+    )
+  });
+
+  return res.status(400).send(
+    page(
+      "Login fehlgeschlagen",
+      alertBox("Ungültige Anmeldung. Bitte versuche es erneut.", "bad")
+    )
+  );
+}
   delete req.session.oauthState;
   try {
     const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
