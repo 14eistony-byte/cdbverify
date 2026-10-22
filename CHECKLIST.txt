@@ -1,0 +1,8 @@
+Vor dem Start:
+- .env ausgefüllt
+- Redirect URI stimmt exakt
+- Verified-Rolle existiert
+- Bot-Rolle steht über Verified
+- npm install
+- npm run deploy-commands
+- npm start
