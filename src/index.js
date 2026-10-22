@@ -22,7 +22,7 @@ if (process.env.SESSION_SECRET.length < 32) {
 }
 
 const PORT = Number(process.env.PORT || 3000);
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL = process.env.BASE_URL || "https://cdbverify-1.onrender.com";
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const app = express();
 
